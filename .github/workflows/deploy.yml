@@ -1,0 +1,47 @@
+name: CI/CD Backend VidalCasino
+
+on:
+  push:
+    branches:
+      - deploy
+
+jobs:
+  build-push-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Login a Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build y push imagen backend
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/casino-backend:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/casino-backend:v1.0.0
+            ${{ secrets.DOCKERHUB_USERNAME }}/casino-backend:${{ github.sha }}
+
+      - name: Deploy en EC2 backend
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_BACKEND_HOST }}
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            docker pull ${{ secrets.DOCKERHUB_USERNAME }}/casino-backend:latest
+            docker stop casino-backend || true
+            docker rm casino-backend || true
+            docker run -d \
+              --name casino-backend \
+              --restart always \
+              -p 3000:3000 \
+              --env-file /home/ec2-user/casino/.env \
+              ${{ secrets.DOCKERHUB_USERNAME }}/casino-backend:latest

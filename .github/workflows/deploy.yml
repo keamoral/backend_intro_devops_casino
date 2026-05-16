@@ -36,12 +36,41 @@ jobs:
           username: ec2-user
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
+            # Crear red interna si no existe
+            docker network create casino-network || true
+
+            # Levantar PostgreSQL
+            docker stop casino-db || true
+            docker rm casino-db || true
+            docker run -d \
+              --name casino-db \
+              --network casino-network \
+              --restart always \
+              -e POSTGRES_USER=casino \
+              -e POSTGRES_PASSWORD=casino \
+              -e POSTGRES_DB=casino_db \
+              -v postgres_data:/var/lib/postgresql/data \
+              postgres:15-alpine
+
+            # Esperar que PostgreSQL esté listo
+            sleep 10
+
+            # Levantar backend
             docker pull ${{ secrets.DOCKERHUB_USERNAME }}/casino-backend:latest
             docker stop casino-backend || true
             docker rm casino-backend || true
             docker run -d \
               --name casino-backend \
+              --network casino-network \
               --restart always \
               -p 3000:3000 \
-              --env-file /home/ec2-user/casino/.env \
+              -e PORT=3000 \
+              -e DB_HOST=casino-db \
+              -e DB_PORT=5432 \
+              -e DB_USER=casino \
+              -e DB_PASSWORD=casino \
+              -e DB_NAME=casino_db \
+              -e JWT_SECRET=cambiame-en-produccion \
+              -e JWT_EXPIRES_IN=8h \
+              -e CORS_ORIGIN=http://${{ secrets.EC2_FRONTEND_HOST }} \
               ${{ secrets.DOCKERHUB_USERNAME }}/casino-backend:latest

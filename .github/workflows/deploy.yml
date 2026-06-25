@@ -1,78 +1,41 @@
-name: CI/CD Backend VidalCasino
+name: CI/CD — casino-backend
 
 on:
   push:
-    branches:
-      - deploy
+    branches: [deploy]
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  ECR_REGISTRY: 033894660426.dkr.ecr.us-east-1.amazonaws.com
+  ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+  EKS_CLUSTER: ${{ secrets.EKS_CLUSTER }}
+  IMAGE_TAG: ${{ github.sha }}
 
 jobs:
   build-push-deploy:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout código
         uses: actions/checkout@v4
-
-      - name: Login a Docker Hub
-        uses: docker/login-action@v3
+      - name: Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build y push imagen backend
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/casino-backend:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/casino-backend:v1.0.0
-            ${{ secrets.DOCKERHUB_USERNAME }}/casino-backend:${{ github.sha }}
-
-      - name: Deploy en EC2 backend
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.EC2_FRONTEND_HOST }}
-          username: ec2-user
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            echo "${{ secrets.EC2_SSH_KEY }}" > /tmp/casino-key.pem
-            chmod 600 /tmp/casino-key.pem
-
-            ssh -i /tmp/casino-key.pem \
-              -o StrictHostKeyChecking=no \
-              ec2-user@${{ secrets.EC2_BACKEND_HOST }} << 'ENDSSH'
-              docker network create casino-network || true
-              docker stop casino-db || true
-              docker rm casino-db || true
-              docker run -d \
-                --name casino-db \
-                --network casino-network \
-                --restart always \
-                -e POSTGRES_USER=casino \
-                -e POSTGRES_PASSWORD=casino \
-                -e POSTGRES_DB=casino_db \
-                -v postgres_data:/var/lib/postgresql/data \
-                postgres:15-alpine
-              sleep 10
-              docker pull kevin3242/casino-backend:latest
-              docker stop casino-backend || true
-              docker rm casino-backend || true
-              docker run -d \
-                --name casino-backend \
-                --network casino-network \
-                --restart always \
-                -p 3000:3000 \
-                -e PORT=3000 \
-                -e DB_HOST=casino-db \
-                -e DB_PORT=5432 \
-                -e DB_USER=casino \
-                -e DB_PASSWORD=casino \
-                -e DB_NAME=casino_db \
-                -e JWT_SECRET=cambiame-en-produccion \
-                -e JWT_EXPIRES_IN=8h \
-                -e CORS_ORIGIN=http://${{ secrets.EC2_FRONTEND_HOST }} \
-                kevin3242/casino-backend:latest
-            ENDSSH
-
-            rm /tmp/casino-key.pem
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      - name: Login a Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Build, tag y push de la imagen
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+      - name: Actualizar kubeconfig
+        run: |
+          aws eks update-kubeconfig --region $AWS_REGION --name $EKS_CLUSTER
+      - name: Deploy en EKS
+        run: |
+          kubectl set image deployment/casino-backend casino-backend=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          kubectl rollout status deployment/casino-backend

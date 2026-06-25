@@ -29,6 +29,12 @@ jobs:
           echo "Repository: ${{ secrets.ECR_REPOSITORY }}"
           echo "SHA: ${{ github.sha }}"
 
+      - name: Check docker version
+        run: |
+          docker version
+          docker buildx version
+          which docker
+
       - name: Build tag y push de la imagen
         run: |
           REGISTRY="${{ steps.login-ecr.outputs.registry }}"

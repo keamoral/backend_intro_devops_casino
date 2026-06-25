@@ -23,22 +23,10 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Debug variables
-        run: |
-          echo "Registry: ${{ steps.login-ecr.outputs.registry }}"
-          echo "Repository: ${{ secrets.ECR_REPOSITORY }}"
-          echo "SHA: ${{ github.sha }}"
-
-      - name: Check docker version
-        run: |
-          docker version
-          docker buildx version
-          which docker
-
       - name: Build tag y push de la imagen
         run: |
           REGISTRY="${{ steps.login-ecr.outputs.registry }}"
-          REPO="${{ secrets.ECR_REPOSITORY }}"
+          REPO=$(echo "${{ secrets.ECR_REPOSITORY }}" | tr -d '[:space:]')
           TAG="${{ github.sha }}"
           echo "Building: $REGISTRY/$REPO:$TAG"
           docker build -t "$REGISTRY/$REPO:$TAG" .
@@ -53,7 +41,7 @@ jobs:
       - name: Deploy en EKS
         run: |
           REGISTRY="${{ steps.login-ecr.outputs.registry }}"
-          REPO="${{ secrets.ECR_REPOSITORY }}"
+          REPO=$(echo "${{ secrets.ECR_REPOSITORY }}" | tr -d '[:space:]')
           TAG="${{ github.sha }}"
           kubectl set image deployment/casino-backend casino-backend="$REGISTRY/$REPO:$TAG"
           kubectl rollout status deployment/casino-backend

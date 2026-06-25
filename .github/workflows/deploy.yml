@@ -23,26 +23,31 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build tag y push de la imagen
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
-          IMAGE_TAG: ${{ github.sha }}
+      - name: Debug variables
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          echo "Registry: ${{ steps.login-ecr.outputs.registry }}"
+          echo "Repository: ${{ secrets.ECR_REPOSITORY }}"
+          echo "SHA: ${{ github.sha }}"
+
+      - name: Build tag y push de la imagen
+        run: |
+          REGISTRY="${{ steps.login-ecr.outputs.registry }}"
+          REPO="${{ secrets.ECR_REPOSITORY }}"
+          TAG="${{ github.sha }}"
+          echo "Building: $REGISTRY/$REPO:$TAG"
+          docker build -t "$REGISTRY/$REPO:$TAG" .
+          docker tag "$REGISTRY/$REPO:$TAG" "$REGISTRY/$REPO:latest"
+          docker push "$REGISTRY/$REPO:$TAG"
+          docker push "$REGISTRY/$REPO:latest"
 
       - name: Actualizar kubeconfig
         run: |
           aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name ${{ secrets.EKS_CLUSTER }}
 
       - name: Deploy en EKS
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
-          IMAGE_TAG: ${{ github.sha }}
         run: |
-          kubectl set image deployment/casino-backend casino-backend=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          REGISTRY="${{ steps.login-ecr.outputs.registry }}"
+          REPO="${{ secrets.ECR_REPOSITORY }}"
+          TAG="${{ github.sha }}"
+          kubectl set image deployment/casino-backend casino-backend="$REGISTRY/$REPO:$TAG"
           kubectl rollout status deployment/casino-backend

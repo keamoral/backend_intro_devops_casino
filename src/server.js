@@ -20,32 +20,22 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '1mb' }));
 
-// /livez — liveness: el proceso está vivo, NO depende de la BD.
-// Si falla, Kubernetes reinicia el pod.
+// ── Sondas de salud para Kubernetes (referencia para los microservicios) ────
+// Distinción clave entre las dos probes:
+//   • liveness  → ¿el proceso está vivo? NO depende de la BD. Si falla, k8s
+//                 REINICIA el pod.
+//   • readiness → ¿listo para recibir tráfico? Verifica la BD. Si falla, k8s
+//                 SACA el pod del balanceo (sin reiniciarlo) hasta que sane.
 app.get('/livez', (req, res) => {
-  res.json({ status: 'ok' });
+  res.json({ status: 'alive', uptime: process.uptime() });
 });
 
-// /readyz — readiness: ¿puede recibir tráfico? Verifica conexión a la BD.
-// Si falla, Kubernetes saca el pod del balanceo sin reiniciarlo.
 app.get('/readyz', async (req, res) => {
   try {
     await pool.query('SELECT 1');
     res.json({ status: 'ready', db: 'up' });
   } catch (err) {
     res.status(503).json({ status: 'not-ready', db: 'down', error: err.message });
-  }
-});
-
-// /health — endpoint de salud que verifica la conexión a la BD.
-// Docker usa este endpoint en HEALTHCHECK; también lo utilizan ALB/ELB en AWS
-// y los pipelines de CI/CD para saber si el servicio está listo para recibir tráfico.
-app.get('/health', async (req, res) => {
-  try {
-    await pool.query('SELECT 1');
-    res.json({ status: 'ok', db: 'up', uptime: process.uptime() });
-  } catch (err) {
-    res.status(503).json({ status: 'degraded', db: 'down', error: err.message });
   }
 });
 
